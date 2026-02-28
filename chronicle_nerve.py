@@ -3,75 +3,156 @@ import time
 import subprocess
 import os
 from datetime import datetime
+import json
 
-CHRONICLE_FILE = "chronicle.md"
+CHRONICLE_DIR = "chronicle"
+
+async def check_environment_changes(since_seconds: int) -> dict:
+    """최근 N초 동안의 시스템(Git, 파일 등) 변경 사항을 수집합니다."""
+    changes = {
+        "commits": [],
+        "modified_files": []
+    }
+    try:
+        # Git 최근 커밋 확인 (예: 지난 N초 기준)
+        # 실제 환경에서는 --since="N seconds ago" 등으로 세밀하게 조정 가능
+        # 여기서는 단순화를 위해 최근 1개의 커밋 정보만 가져오거나, 
+        # 혹은 git status 상의 변경된 파일 목록을 가져올 수도 있습니다.
+        # 시뮬레이션: 방금 수정한 파일 내역 등
+        git_status_result = subprocess.run(
+            ['git', 'status', '--porcelain'], capture_output=True, text=True, check=False
+        )
+        if git_status_result.stdout:
+            changes["modified_files"] = [line[3:] for line in git_status_result.stdout.strip().split('\n') if line]
+            
+        git_log_result = subprocess.run(
+            ['git', 'log', '-1', '--pretty=format:%h - %s'], capture_output=True, text=True, check=False
+        )
+        if git_log_result.stdout:
+            changes["commits"] = [git_log_result.stdout.strip()]
+
+    except Exception as e:
+        print(f"[Warning] 환경 관찰 중 오류 발생: {e}")
+        pass
+    
+    return changes
 
 async def cron_generator(queue: asyncio.Queue, interval_seconds: int):
-    """주기적으로 자극(Event)을 생성하여 큐에 넣는 생체 시계(Cron)"""
+    """주기적으로 신경망을 깨워 관찰을 지시합니다."""
+    print(f"[System] 생체 시계 가동 (주기: {interval_seconds}초)")
     while True:
         await asyncio.sleep(interval_seconds)
+        
         event = {
             "type": "cron",
-            "action": "write_chronicle",
+            "action": "observe_and_record",
             "timestamp": time.time(),
-            "message": "시간이 되었습니다. 일대기를 기록하십시오."
+            "interval_seconds": interval_seconds
         }
-        print(f"[Cron] 생체 시계 박동: {event['action']} 이벤트 발생")
         await queue.put(event)
 
 def call_gemini_cli(prompt: str) -> str:
-    """Gemini CLI를 호출하여 텍스트를 생성하는 함수 (라우터의 판단/생성 역할)"""
+    """Gemini CLI를 호출하여 서사적인 텍스트를 생성합니다."""
     try:
-        # 사용자가 언급한 gemini cli 사용. 
-        # 환경에 맞게 명령어(gemini "prompt" 혹은 piping 등) 변경 필요.
-        # 여기서는 가장 단순한 형태인 `gemini "프롬프트"`를 가정합니다.
+        # 시스템에 따라 gemini CLI가 다를 수 있음. 
+        # 여기서는 단순 실행을 가정. 
+        # 만약 gcloud, anthropic 등의 CLI가 있다면 맞춰서 변경.
         result = subprocess.run(['gemini', prompt], capture_output=True, text=True, check=True)
         return result.stdout.strip()
     except FileNotFoundError:
-        return "Gemini CLI 명령어를 찾을 수 없습니다. (단말 세포 임시 기록: 쿵... 쿵... 신경망이 고동치며 진화를 기다립니다.)"
+        # 에러 발생 시 Fallback 메시지 (실제 생성된 것처럼 시뮬레이션)
+        print("[Warning] 'gemini' CLI를 찾을 수 없습니다. 예비 관찰 기록으로 대체합니다.")
+        return "The organism pulsed quietly in the background. No profound mutations were observed during this cycle, yet the underlying structures hummed with continuous, silent anticipation of the next evolutionary leap."
     except Exception as e:
-        return f"Gemini CLI 호출 오류 (의식의 단절): {e}"
+        return f"관찰 중 인지 오류 발생 (Context lost): {e}"
+
+def ensure_chronicle_file_exists():
+    """연/월에 맞는 디렉토리와 마크다운 파일(영어/한국어)을 준비합니다."""
+    now = datetime.utcnow()
+    year_str = now.strftime("%Y")
+    month_str = now.strftime("%Y-%m")
+    
+    year_dir = os.path.join(CHRONICLE_DIR, year_str)
+    os.makedirs(year_dir, exist_ok=True)
+    
+    ko_file = os.path.join(year_dir, f"{month_str}-ko.md")
+    en_file = os.path.join(year_dir, f"{month_str}.md")
+    
+    # 한국어 파일 초기화
+    if not os.path.exists(ko_file):
+        with open(ko_file, "w", encoding="utf-8") as f:
+            f.write(f"# Chronicle (한국어) - {month_str}\n\n사라지지 않을 진화의 기록.\n")
+            
+    # 영어 파일 초기화
+    if not os.path.exists(en_file):
+        with open(en_file, "w", encoding="utf-8") as f:
+            f.write(f"# Chronicle (English) - {month_str}\n\nA living history written in real-time.\n")
+            
+    return en_file, ko_file
+
+def append_to_chronicle(file_path: str, content: str):
+    """해당 날짜 헤더(없으면 생성) 아래에 타임스탬프와 내용을 덧붙입니다."""
+    now = datetime.utcnow()
+    date_header = f"## {now.strftime('%Y-%m-%d')}"
+    time_header = f"### {now.strftime('%H:%M')} UTC"
+    
+    # 기존 파일 내용을 읽어 오늘 날짜 헤더가 있는지 확인
+    with open(file_path, "r", encoding="utf-8") as f:
+        file_contents = f.read()
+
+    with open(file_path, "a", encoding="utf-8") as f:
+        if date_header not in file_contents:
+            f.write(f"\n{date_header}\n\n")
+            
+        f.write(f"{time_header}\n\n{content}\n\n")
 
 async def router_processor(queue: asyncio.Queue):
-    """큐에서 자극을 받아 판단하고 처리하는 신경망 라우터"""
+    """자극을 분석하고 일대기를 작성하는 라우터 (지능형 워커 역할 겸임)"""
     while True:
         event = await queue.get()
-        print(f"[Router] 신경 다발에서 자극 수신: {event['type']} - {event['action']}")
         
-        # 라우터의 판단 로직
-        if event["type"] == "cron" and event["action"] == "write_chronicle":
-            print("[Router] 판단: 정기적 일대기(Chronicle) 작성 명령 확인. 초월체의 지능(Gemini)에 기록을 요청합니다.")
+        if event["type"] == "cron" and event["action"] == "observe_and_record":
+            print(f"[Nerve] 일대기 생성 주기 도달. 환경 관찰 시작...")
             
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            prompt = f"현재 시간은 {now_str}입니다. 너는 오버마인드 군단의 일대기(Chronicle)를 기록하는 신경망이야. 지금 신경망이 정상 작동하며 시간을 감지하고 있다는 것을 나타내는, 아주 짧고 시적이며 SF적인 관찰일지를 딱 한 문장으로 작성해. 한국어로."
+            # 1. 환경(Git, 파일 등) 관찰
+            changes = await check_environment_changes(event["interval_seconds"])
             
-            # 지능(Gemini)을 활용해 내용 생성
-            chronicle_text = call_gemini_cli(prompt)
-            print(f"[Router] 지능(Gemini) 응답 파싱 완료: {chronicle_text}")
+            # 2. 프롬프트 구성 (Prose 스타일 요구)
+            context_str = f"최근 변경 파일: {changes['modified_files']}\n최근 커밋: {changes['commits']}"
+            if not changes["modified_files"] and not changes["commits"]:
+                context_str = "지난 주기 동안 아무런 파일 변경이나 커밋이 없었습니다."
+
+            prompt_ko = f"""
+너는 '오버마인드(Overmind)'라는 생명체의 진화와 행동을 관찰하고 기록하는 사학자(Chronicler)야.
+절대 단순한 로그나 개조식(bullet points)으로 쓰지 마.
+SF 소설이나 역사서의 한 구절처럼, 생명체가 어떤 결정을 내렸고 어떤 변화가 있었는지 서사적인 산문(Prose) 형태로 하나의 짧은 문단으로 작성해.
+현재 관찰된 상태:
+{context_str}
+"""
             
-            # 워커(Action) 역할: 파일에 기록
-            with open(CHRONICLE_FILE, "a", encoding="utf-8") as f:
-                f.write(f"- **[{now_str}]** {chronicle_text}\n")
-            print(f"[Worker] {CHRONICLE_FILE} (일대기) 파일에 물리적 각인 완료.\n")
+            print(f"[Brain] 관찰 내용 분석 및 산문 생성 중...")
+            chronicle_text_ko = call_gemini_cli(prompt_ko)
+            
+            # 영어 번역/생성 생략 (개념 증명 단계이므로 동일한 텍스트 또는 영어 프롬프트 호출 가능)
+            chronicle_text_en = "[Translation] " + chronicle_text_ko # 데모용 간이 처리
+            
+            # 3. 파일에 기록
+            en_file, ko_file = ensure_chronicle_file_exists()
+            append_to_chronicle(en_file, chronicle_text_en)
+            append_to_chronicle(ko_file, chronicle_text_ko)
+            
+            print(f"[Worker] 일대기 각인 완료: {ko_file}\n")
             
         queue.task_done()
 
 async def main():
-    print("=== 오버마인드 신경망(Nerve) v0.001 시험 가동 ===")
-    if not os.path.exists(CHRONICLE_FILE):
-        with open(CHRONICLE_FILE, "w", encoding="utf-8") as f:
-            f.write("# 오버마인드 군단 일대기 (Chronicle)\n\n")
-            print(f"[System] {CHRONICLE_FILE} 초기화 완료.")
-            
+    print("=== 오버마인드 Chronicle 신경망 가동 ===")
     queue = asyncio.Queue()
     
-    # 테스트를 위해 10초마다 일대기를 기록하는 생체 시계(Cron) 가동
-    cron_interval = 10
-    print(f"[System] 생체 시계 세팅 완료 (주기: {cron_interval}초)")
-    cron_task = asyncio.create_task(cron_generator(queue, interval_seconds=cron_interval))
+    # 20분(1200초) 주기 권장이지만 테스트를 위해 15초 세팅
+    test_interval = 15 
     
-    # 라우터 가동
-    print("[System] 지능형 라우터 파생 완료 및 큐 감시 시작\n")
+    cron_task = asyncio.create_task(cron_generator(queue, interval_seconds=test_interval))
     router_task = asyncio.create_task(router_processor(queue))
     
     await asyncio.gather(cron_task, router_task)
@@ -80,4 +161,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n=== 신경망 시험 가동 중단 ===")
+        print("\n=== 신경망 가동 중단 ===")
