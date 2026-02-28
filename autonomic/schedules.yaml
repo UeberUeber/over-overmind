@@ -1,0 +1,11 @@
+# 오버마인드 자율 신경망 설계도 (Autonomic Nerves)
+# 뇌(Brain)가 읽고 스스로 수정할 수 있는 시스템 스케줄(박동)의 중심입니다.
+
+nerves:
+  - name: chronicle_nerve
+    description: "생태계의 변화를 1시간마다 산문으로 기록한다."
+    cron_expr: "0 * * * *"
+    command: "/usr/bin/env python chronicle_nerve.py"
+    active: true
+
+  # 향후 뇌/입/일벌레 등 다양한 신경들이 아래에 추가되며 진화할 예정입니다.
